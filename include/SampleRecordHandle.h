@@ -25,9 +25,10 @@
 #ifndef LMMS_SAMPLE_RECORD_HANDLE_H
 #define LMMS_SAMPLE_RECORD_HANDLE_H
 
-#include <QList>
-#include <QPair>
+#include <QPointer>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include "PlayHandle.h"
 #include "TimePos.h"
@@ -61,14 +62,14 @@ private:
 	virtual void writeBuffer( const SampleFrame* _ab,
 						const f_cnt_t _frames );
 
-	using bufferList = QList<QPair<SampleFrame*, f_cnt_t>>;
+	using bufferList = std::vector<std::pair<std::unique_ptr<SampleFrame[]>, f_cnt_t>>;
 	bufferList m_buffers;
 	f_cnt_t m_framesRecorded;
 	TimePos m_minLength;
 
 	Track * m_track;
 	PatternTrack* m_patternTrack;
-	SampleClip * m_clip;
+	QPointer<SampleClip> m_clip;
 
 } ;
 

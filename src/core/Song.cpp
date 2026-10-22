@@ -521,8 +521,9 @@ void Song::playSong()
 
 void Song::record()
 {
+	playSong();
 	m_recording = true;
-	// TODO: Implement
+	emit playbackStateChanged();
 }
 
 
@@ -532,6 +533,7 @@ void Song::playAndRecord()
 {
 	playSong();
 	m_recording = true;
+	emit playbackStateChanged();
 }
 
 
@@ -653,7 +655,7 @@ void Song::stop()
 
 	auto& timeline = getTimeline();
 	m_paused = false;
-	m_recording = true;
+	m_recording = false;
 	m_playing = false;
 
 	switch (timeline.stopBehaviour())

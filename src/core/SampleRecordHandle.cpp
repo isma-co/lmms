@@ -29,6 +29,9 @@
 #include "PatternTrack.h"
 #include "SampleBuffer.h"
 #include "SampleClip.h"
+#include "Song.h"
+
+#include <QMetaObject>
 
 
 namespace lmms
@@ -50,14 +53,35 @@ SampleRecordHandle::SampleRecordHandle( SampleClip* clip ) :
 
 SampleRecordHandle::~SampleRecordHandle()
 {
-	if (!m_buffers.empty()) { m_clip->setSampleBuffer(createSampleBuffer()); }
+	auto buffers = std::move(m_buffers);
+	const auto framesRecorded = m_framesRecorded;
+	const auto sampleRate = Engine::audioEngine()->inputSampleRate();
+	const QPointer<SampleClip> clip = m_clip;
 
-	while( !m_buffers.empty() )
+	// Play handles are destroyed by the audio engine. Assemble the potentially
+	// large SampleBuffer and update the QObject later on the clip's own thread.
+	if (clip)
 	{
-		delete[] m_buffers.front().first;
-		m_buffers.erase( m_buffers.begin() );
+		QMetaObject::invokeMethod(clip, [clip, buffers = std::move(buffers), framesRecorded, sampleRate]() mutable
+		{
+			auto recorded = std::vector<SampleFrame>(framesRecorded);
+			f_cnt_t framesCopied = 0;
+			for (const auto& [buffer, frameCount] : buffers)
+			{
+				std::copy_n(buffer.get(), frameCount, recorded.begin() + framesCopied);
+				framesCopied += frameCount;
+			}
+
+			if (!clip) { return; }
+
+			if (!recorded.empty())
+			{
+				clip->setSampleBuffer(std::make_shared<const SampleBuffer>(std::move(recorded), sampleRate));
+			}
+			clip->setRecord(false);
+			clip->setIsPlaying(false);
+		}, Qt::QueuedConnection);
 	}
-	m_clip->setRecord( false );
 }
 
 
@@ -83,7 +107,7 @@ void SampleRecordHandle::play( SampleFrame* /*_working_buffer*/ )
 
 bool SampleRecordHandle::isFinished() const
 {
-	return false;
+	return !m_clip || !Engine::getSong()->isRecording();
 }
 
 
@@ -115,7 +139,7 @@ std::shared_ptr<const SampleBuffer> SampleRecordHandle::createSampleBuffer()
 	auto framesCopied = 0;
 	for (const auto& [buf, numFrames] : m_buffers)
 	{
-		std::copy_n(buf, numFrames, bigBuffer.begin() + framesCopied);
+		std::copy_n(buf.get(), numFrames, bigBuffer.begin() + framesCopied);
 		framesCopied += numFrames;
 	}
 
@@ -128,7 +152,7 @@ std::shared_ptr<const SampleBuffer> SampleRecordHandle::createSampleBuffer()
 
 void SampleRecordHandle::writeBuffer( const SampleFrame* _ab, const f_cnt_t _frames )
 {
-	auto buf = new SampleFrame[_frames];
+	auto buf = std::make_unique<SampleFrame[]>(_frames);
 	for( f_cnt_t frame = 0; frame < _frames; ++frame )
 	{
 		for( ch_cnt_t chnl = 0; chnl < DEFAULT_CHANNELS; ++chnl )
@@ -136,7 +160,7 @@ void SampleRecordHandle::writeBuffer( const SampleFrame* _ab, const f_cnt_t _fra
 			buf[frame][chnl] = _ab[frame][chnl];
 		}
 	}
-	m_buffers.push_back( qMakePair( buf, _frames ) );
+	m_buffers.emplace_back(std::move(buf), _frames);
 }
 
 

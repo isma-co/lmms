@@ -86,6 +86,7 @@ private:
 	SDL_AudioDeviceID m_outputDevice;
 
 	SDL_AudioSpec m_inputAudioHandle;
+	SDL_AudioSpec m_inputAudioSpec{};
 	SDL_AudioDeviceID m_inputDevice;
 } ;
 
