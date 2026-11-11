@@ -53,6 +53,9 @@ public:
 	gui::TrackView * createView( gui::TrackContainerView* tcv ) override;
 	Clip* createClip(const TimePos & pos) override;
 
+	//! Restart sample playback after a trim without rearming an ongoing recording.
+	void invalidateTrimPlayback();
+
 
 	void saveTrackSpecificSettings(QDomDocument& doc, QDomElement& parent, bool presetMode) override;
 	void loadTrackSpecificSettings( const QDomElement & _this ) override;

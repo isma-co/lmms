@@ -27,6 +27,8 @@
 
 #include <QDomElement>
 
+#include <vector>
+
 #include "EffectChain.h"
 #include "Mixer.h"
 #include "panning.h"
@@ -246,6 +248,27 @@ void SampleTrack::updateClips()
 {
 	Engine::audioEngine()->removePlayHandlesOfTypes( this, PlayHandle::Type::SamplePlayHandle );
 	setPlayingClips( false );
+}
+
+void SampleTrack::invalidateTrimPlayback()
+{
+	const auto guard = Engine::audioEngine()->requestChangesGuard();
+	// SampleRecordHandle shares the SamplePlayHandle type flag. Remove actual
+	// playback handles individually so trimming cannot stop an ongoing take.
+	std::vector<PlayHandle*> handles;
+	for (auto handle : Engine::audioEngine()->playHandles())
+	{
+		if (handle->isFromTrack(this) && dynamic_cast<SamplePlayHandle*>(handle)) { handles.push_back(handle); }
+	}
+	for (auto handle : handles) { Engine::audioEngine()->removePlayHandle(handle); }
+	for (auto clip : getClips())
+	{
+		auto sampleClip = static_cast<SampleClip*>(clip);
+		if (!(sampleClip->isRecord() && Engine::getSong()->isRecording()))
+		{
+			sampleClip->setIsPlaying(false);
+		}
+	}
 }
 
 

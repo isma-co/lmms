@@ -181,6 +181,9 @@ protected:
 	//! @return true if the position is strictly inside the clip.
 	bool splitClip(const TimePos pos);
 
+	//! Apply an already snapped resize request. Sample clips constrain it to their source.
+	virtual void resizeClip(const TimePos& position, const TimePos& length);
+
 	//! @brief Set up the context menu for this ClipView.
 	//!
 	//! Set up the various context menu events that can apply to a ClipView.

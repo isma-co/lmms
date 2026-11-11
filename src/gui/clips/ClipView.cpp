@@ -481,13 +481,6 @@ void ClipView::mousePressEvent( QMouseEvent * me )
 				getGUI()->songEditor()->m_editor->selectAllClips( false );
 				m_clip->addJournalCheckPoint();
 
-				// Action::Move, Action::Resize and Action::ResizeLeft
-				// Action::Split action doesn't disable Clip journalling
-				if (m_action == Action::Move || m_action == Action::Resize || m_action == Action::ResizeLeft)
-				{
-					m_clip->setJournalling(false);
-				}
-
 				setInitialPos(pos);
 				setInitialOffsets();
 
@@ -518,6 +511,11 @@ void ClipView::mousePressEvent( QMouseEvent * me )
 				{
 					m_action = Action::Move;
 					setCursor( Qt::SizeAllCursor );
+				}
+
+				if (m_action == Action::Move || m_action == Action::Resize || m_action == Action::ResizeLeft)
+				{
+					m_clip->saveJournallingState(false);
 				}
 
 				if( m_action == Action::Move )
@@ -712,8 +710,7 @@ void ClipView::mouseMoveEvent( QMouseEvent * me )
 				// even if the user switches to snapping later
 				setInitialPos( m_initialMousePos );
 				// Don't resize to less than 1 tick
-				m_clip->changeLength( qMax<int>( 1, l ) );
-				m_clip->setAutoResize(false);
+				resizeClip(m_clip->startPosition(), qMax<int>(1, l));
 			}
 			else if ( me->modifiers() & Qt::ShiftModifier )
 			{	// If shift is held, quantize clip's end position
@@ -721,8 +718,7 @@ void ClipView::mouseMoveEvent( QMouseEvent * me )
 				// The end position has to be after the clip's start
 				TimePos min = m_initialClipPos.quantize( snapSize );
 				if ( min <= m_initialClipPos ) min += snapLength;
-				m_clip->changeLength( qMax<int>(min - m_initialClipPos, end - m_initialClipPos) );
-				m_clip->setAutoResize(false);
+				resizeClip(m_clip->startPosition(), qMax<int>(min - m_initialClipPos, end - m_initialClipPos));
 			}
 			else
 			{	// Otherwise, resize in fixed increments
@@ -731,14 +727,11 @@ void ClipView::mouseMoveEvent( QMouseEvent * me )
 				// Don't resize to less than 1 tick
 				auto min = TimePos(initialLength % snapLength);
 				if (min < 1) min += snapLength;
-				m_clip->changeLength( qMax<int>( min, initialLength + offset) );
-				m_clip->setAutoResize(false);
+				resizeClip(m_clip->startPosition(), qMax<int>(min, initialLength + offset));
 			}
 		}
 		else
 		{
-			auto pClip = dynamic_cast<PatternClip*>(m_clip);
-
 			const int x = mapToParent(pos).x() - m_initialMousePos.x();
 
 			TimePos t = qMax( 0, (int)
@@ -774,29 +767,7 @@ void ClipView::mouseMoveEvent( QMouseEvent * me )
 				t = qMin<int>( m_initialClipEnd - minLength, m_initialClipPos + offset );
 			}
 
-			TimePos positionOffset = m_clip->startPosition() - t;
-			if (m_clip->length() + positionOffset >= 1)
-			{
-				m_clip->movePosition(t);
-				m_clip->changeLength(m_clip->length() + positionOffset);
-				if (pClip)
-				{
-					// Modulus the start time offset as we need it only for offsets
-					// inside the pattern length. This is done to prevent a value overflow.
-					// The start time offset may still become larger than the pattern length
-					// whenever the pattern length decreases without a clip resize following.
-					// To deal safely with it, always modulus before use.
-					tick_t patternLength = Engine::patternStore()->lengthOfPattern(pClip->patternIndex())
-							* TimePos::ticksPerBar();
-					TimePos position = (pClip->startTimeOffset() + positionOffset) % patternLength;
-					pClip->setStartTimeOffset(position);
-				}
-				else
-				{
-					m_clip->setStartTimeOffset(m_clip->startTimeOffset() + positionOffset);
-				}
-				m_clip->setAutoResize(false);
-			}
+			resizeClip(t, m_clip->endPosition() - t);
 		}
 		s_textFloat->setText( tr( "%1:%2 (%3:%4 to %5:%6)" ).
 				arg( m_clip->length().getBar() ).
@@ -823,6 +794,41 @@ void ClipView::mouseMoveEvent( QMouseEvent * me )
 
 
 
+void ClipView::resizeClip(const TimePos& position, const TimePos& length)
+{
+	if (position == m_clip->startPosition())
+	{
+		m_clip->changeLength(length);
+		m_clip->setAutoResize(false);
+		return;
+	}
+
+	auto pClip = dynamic_cast<PatternClip*>(m_clip);
+	TimePos positionOffset = m_clip->startPosition() - position;
+	if (m_clip->length() + positionOffset >= 1)
+	{
+		m_clip->movePosition(position);
+		m_clip->changeLength(m_clip->length() + positionOffset);
+		if (pClip)
+		{
+			// Modulus the start time offset as we need it only for offsets
+			// inside the pattern length. This is done to prevent a value overflow.
+			// The start time offset may still become larger than the pattern length
+			// whenever the pattern length decreases without a clip resize following.
+			// To deal safely with it, always modulus before use.
+			tick_t patternLength = Engine::patternStore()->lengthOfPattern(pClip->patternIndex())
+					* TimePos::ticksPerBar();
+			TimePos position = (pClip->startTimeOffset() + positionOffset) % patternLength;
+			pClip->setStartTimeOffset(position);
+		}
+		else
+		{
+			m_clip->setStartTimeOffset(m_clip->startTimeOffset() + positionOffset);
+		}
+		m_clip->setAutoResize(false);
+	}
+}
+
 void ClipView::mouseReleaseEvent( QMouseEvent * me )
 {
 	// If the Action::CopySelection was chosen as the action due to mouse movement,
@@ -836,8 +842,7 @@ void ClipView::mouseReleaseEvent( QMouseEvent * me )
 	}
 	else if( m_action == Action::Move || m_action == Action::Resize || m_action == Action::ResizeLeft )
 	{
-		// TODO: Fix m_clip->setJournalling() consistency
-		m_clip->setJournalling( true );
+		m_clip->restoreJournallingState();
 	}
 	else if( m_action == Action::Split )
 	{

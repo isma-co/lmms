@@ -26,6 +26,8 @@
 
 #include <QDomElement>
 #include <QFileInfo>
+#include <QScopedValueRollback>
+#include <QSignalBlocker>
 
 #include "PatternStore.h"
 #include "PathUtil.h"
@@ -126,6 +128,63 @@ void SampleClip::changeLength( const TimePos & _length )
 	Clip::changeLength(std::max(static_cast<int>(_length), 1));
 }
 
+bool SampleClip::trim(const TimePos& position, const TimePos& requestedLength)
+{
+	const auto guard = Engine::audioEngine()->requestChangesGuard();
+	const int oldPosition = startPosition();
+	const int oldLength = length();
+	const int oldOffset = startTimeOffset();
+	const int sourceStart = oldPosition + oldOffset;
+	const int oldEnd = oldPosition + oldLength;
+	int newPosition = std::max(0, position.getTicks());
+	int newLength = std::max(1, requestedLength.getTicks());
+	if (newPosition == oldPosition && newLength == oldLength) { return false; }
+
+	// Empty/record-armed clips must still be resizable before a take exists.
+	if (m_sample.sampleSize() > 0 && !isRecord())
+	{
+		const int sourceLength = sampleLength(); // Whole ticks, at the source sample rate.
+		if (sourceLength < 1) { return false; } // No source interval fits our one-tick minimum.
+		const int sourceEnd = sourceStart + sourceLength;
+		if (newPosition != oldPosition)
+		{
+			// Only constrain the dragged edge. Preserve legacy silence at the other edge.
+			const int minimum = std::max(0, sourceStart);
+			const int maximum = std::min(oldEnd, sourceEnd) - 1;
+			if (minimum > maximum) { return false; }
+			newPosition = std::clamp(newPosition, minimum, maximum);
+			newLength = oldEnd - newPosition;
+		}
+		else
+		{
+			const int minimum = std::max(1, sourceStart - oldPosition + 1);
+			const int maximum = sourceEnd - oldPosition;
+			if (minimum > maximum) { return false; }
+			newLength = std::clamp(newLength, minimum, maximum);
+		}
+	}
+
+	if (newPosition == oldPosition && newLength == oldLength) { return false; }
+
+	{
+		// Defer notifications and the positionChanged playback invalidation until all
+		// three values agree. The outer engine guard also covers handle removal.
+		const QScopedValueRollback<bool> trimming(m_trimming, true);
+		{
+			const QSignalBlocker blocker(this);
+			setStartTimeOffset(sourceStart - newPosition);
+			changeLength(newLength);
+			movePosition(newPosition);
+			setAutoResize(false);
+		}
+		if (newPosition != oldPosition) { emit positionChanged(); }
+		if (newLength != oldLength) { emit lengthChanged(); }
+	}
+	if (auto track = dynamic_cast<SampleTrack*>(getTrack())) { track->invalidateTrimPlayback(); }
+	Engine::getSong()->setModified();
+	return true;
+}
+
 
 
 const QString& SampleClip::sampleFile() const
@@ -196,6 +255,7 @@ void SampleClip::playbackPositionChanged()
 
 void SampleClip::updateTrackClips()
 {
+	if (m_trimming) { return; }
 	auto sampletrack = dynamic_cast<SampleTrack*>(getTrack());
 	if( sampletrack)
 	{
