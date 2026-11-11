@@ -76,6 +76,11 @@ void SampleClipView::updateSample()
 	);
 }
 
+void SampleClipView::resizeClip(const TimePos& position, const TimePos& length)
+{
+	m_clip->trim(position, length);
+}
+
 
 
 

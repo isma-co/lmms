@@ -54,6 +54,7 @@ public slots:
 
 
 protected:
+	void resizeClip(const TimePos& position, const TimePos& length) override;
 	void constructContextMenu(QMenu* cm) override;
 	void mousePressEvent( QMouseEvent * _me ) override;
 	void mouseReleaseEvent( QMouseEvent * _me ) override;

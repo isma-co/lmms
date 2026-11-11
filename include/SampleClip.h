@@ -56,6 +56,10 @@ public:
 	void changeLength( const TimePos & _length ) override;
 	void updateLength() override;
 
+	//! Apply a mouse resize after snapping, preserving the source's timeline origin.
+	//! The caller owns the gesture's journal checkpoint. Returns whether geometry changed.
+	bool trim(const TimePos& position, const TimePos& length);
+
 	const QString& sampleFile() const;
 	bool hasSampleFileLoaded(const QString & filename) const;
 
@@ -102,6 +106,7 @@ private:
 	BoolModel m_recordModel;
 	bool m_isPlaying;
 	int m_startFrameOffset;
+	bool m_trimming = false;
 
 	friend class gui::SampleClipView;
 
