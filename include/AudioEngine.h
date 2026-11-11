@@ -30,6 +30,7 @@
 #include <QThread>
 #include <samplerate.h>
 
+#include <atomic>
 #include <memory>
 #include <vector>
 
@@ -197,8 +198,9 @@ public:
 
 	sample_rate_t inputSampleRate() const	
 	{
-		return m_audioDev != nullptr ? m_audioDev->sampleRate() : m_baseSampleRate;
+		return m_inputSampleRate;
 	}
+	void setInputSampleRate(sample_rate_t sampleRate) { m_inputSampleRate = sampleRate; }
 
 
 	inline float masterGain() const
@@ -228,7 +230,11 @@ public:
 
 	bool criticalXRuns() const;
 
-	void pushInputFrames( SampleFrame* _ab, const f_cnt_t _frames );
+	void pushInputFrames(const sample_t* input, f_cnt_t frames, ch_cnt_t channels = DEFAULT_CHANNELS);
+	void pushInputFrames(const SampleFrame* input, f_cnt_t frames)
+	{
+		pushInputFrames(frames > 0 ? &input[0][0] : nullptr, frames, DEFAULT_CHANNELS);
+	}
 
 	inline const SampleFrame* inputBuffer()
 	{
@@ -374,12 +380,17 @@ private:
 	f_cnt_t m_framesPerAudioBuffer;
 	f_cnt_t m_framesPerPeriod;
 	sample_rate_t m_baseSampleRate;
+	sample_rate_t m_inputSampleRate;
 
 	SampleFrame* m_inputBuffer[2];
 	f_cnt_t m_inputBufferFrames[2];
 	f_cnt_t m_inputBufferSize[2];
 	int m_inputBufferRead;
 	int m_inputBufferWrite;
+	std::unique_ptr<SampleFrame[]> m_inputRingBuffer;
+	std::size_t m_inputRingCapacity;
+	std::atomic<std::size_t> m_inputRingRead;
+	std::atomic<std::size_t> m_inputRingWrite;
 
 	std::unique_ptr<SampleFrame[]> m_outputBufferRead;
 	std::unique_ptr<SampleFrame[]> m_outputBufferWrite;
