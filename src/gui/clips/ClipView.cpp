@@ -1230,23 +1230,25 @@ auto ClipView::hasCustomColor() const -> bool
 
 bool ClipView::splitClip(const TimePos pos)
 {
-	const TimePos splitPos = m_initialClipPos + pos;
+	const TimePos clipPos = m_clip->startPosition();
+	const TimePos clipEnd = m_clip->endPosition();
+	const TimePos splitPos = clipPos + pos;
 
 	// Don't split if we slid off the Clip or if we're on the clip's start/end
 	// Cutting at exactly the start/end position would create a zero length
 	// clip (bad), and a clip the same length as the original one (pointless).
-	if (splitPos <= m_initialClipPos || splitPos >= m_initialClipEnd) { return false; }
+	if (splitPos <= clipPos || splitPos >= clipEnd) { return false; }
 
 	m_clip->getTrack()->addJournalCheckPoint();
 	m_clip->getTrack()->saveJournallingState(false);
 
 	auto rightClip = m_clip->clone();
 
-	m_clip->changeLength(splitPos - m_initialClipPos);
+	m_clip->changeLength(splitPos - clipPos);
 	m_clip->setAutoResize(false);
 
 	rightClip->movePosition(splitPos);
-	rightClip->changeLength(m_initialClipEnd - splitPos);
+	rightClip->changeLength(clipEnd - splitPos);
 	rightClip->setStartTimeOffset(m_clip->startTimeOffset() - m_clip->length());
 	rightClip->setAutoResize(false);
 

@@ -177,6 +177,10 @@ protected:
 	{
 	}
 
+	//! @brief Split this clip at a position relative to its current start.
+	//! @return true if the position is strictly inside the clip.
+	bool splitClip(const TimePos pos);
+
 	//! @brief Set up the context menu for this ClipView.
 	//!
 	//! Set up the various context menu events that can apply to a ClipView.
@@ -350,11 +354,6 @@ private:
 	virtual bool isResizableBeforeStart() { return true; };
 
 	
-	//! @brief Split this Clip into two clips
-	//! @param pos the position of the split, relative to the start of the clip
-	//! @return true if the clip could be split
-	bool splitClip(const TimePos pos);
-
 	//! @brief Destructively split this Clip into two clips.
 	//!
 	//! If the clip type does not implement this feature, it will default to normal splitting.

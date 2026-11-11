@@ -83,6 +83,22 @@ void SampleClipView::constructContextMenu(QMenu* cm)
 {
 	cm->addSeparator();
 
+	auto splitAction = cm->addAction(tr("Split at Playhead"), this, [this]
+	{
+		auto song = Engine::getSong();
+		if (m_clip->getTrack()->trackContainer() != song) { return; }
+
+		const auto guard = Engine::audioEngine()->requestChangesGuard();
+		const TimePos playhead = song->getPlayPos(Song::PlayMode::Song);
+		if (splitClip(playhead - m_clip->startPosition()))
+		{
+			song->setModified();
+		}
+	});
+	const TimePos playhead = Engine::getSong()->getPlayPos(Song::PlayMode::Song);
+	splitAction->setEnabled(m_clip->getTrack()->trackContainer() == Engine::getSong()
+		&& playhead > m_clip->startPosition() && playhead < m_clip->endPosition());
+
 	/*contextMenu.addAction( embed::getIconPixmap( "record" ),
 				tr( "Set/clear record" ),
 						m_clip, SLOT(toggleRecord()));*/
