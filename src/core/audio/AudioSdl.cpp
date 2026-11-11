@@ -96,16 +96,19 @@ AudioSdl::AudioSdl(bool& _success_ful, AudioEngine* _audioEngine)
 
 	// Try with the configured device
 	const auto inputDeviceCStr = isDefaultInput ? nullptr : inputDevice.c_str();
-	m_inputDevice = SDL_OpenAudioDevice (inputDeviceCStr, 1, &m_inputAudioHandle, &actual, 0);
+	m_inputDevice = SDL_OpenAudioDevice(inputDeviceCStr, 1, &m_inputAudioHandle, &m_inputAudioSpec,
+		SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | SDL_AUDIO_ALLOW_CHANNELS_CHANGE);
 
 	// If we did not get a device ID try again with the default device if we did not try that before
 	if (m_inputDevice == 0 && !isDefaultInput)
 	{
-		m_inputDevice = SDL_OpenAudioDevice(nullptr, 1, &m_inputAudioHandle, &actual, 0);
+		m_inputDevice = SDL_OpenAudioDevice(nullptr, 1, &m_inputAudioHandle, &m_inputAudioSpec,
+			SDL_AUDIO_ALLOW_FREQUENCY_CHANGE | SDL_AUDIO_ALLOW_CHANNELS_CHANGE);
 	}
 
 	if (m_inputDevice != 0) {
 		m_supportsCapture = true;
+		_audioEngine->setInputSampleRate(m_inputAudioSpec.freq);
 	} else {
 		m_supportsCapture = false;
 		qWarning ( "Couldn't open SDL capture device: %s\n", SDL_GetError ());
@@ -181,10 +184,9 @@ void AudioSdl::sdlInputAudioCallback(void *_udata, Uint8 *_buf, int _len) {
 }
 
 void AudioSdl::sdlInputAudioCallback(Uint8 *_buf, int _len) {
-	auto samples_buffer = (SampleFrame*)_buf;
-	f_cnt_t frames = _len / sizeof ( SampleFrame );
-
-	audioEngine()->pushInputFrames (samples_buffer, frames);
+	const auto channels = static_cast<ch_cnt_t>(m_inputAudioSpec.channels);
+	const auto frames = static_cast<f_cnt_t>(_len / sizeof(sample_t) / channels);
+	audioEngine()->pushInputFrames(reinterpret_cast<const sample_t*>(_buf), frames, channels);
 }
 
 QString AudioSdl::setupWidget::s_systemDefaultDevice = AudioDeviceSetupWidget::tr("[System Default]");

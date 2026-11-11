@@ -73,8 +73,12 @@ AudioEngine::AudioEngine(bool renderOnly)
 	, m_framesPerPeriod(std::min(m_framesPerAudioBuffer, DEFAULT_BUFFER_SIZE))
 	, m_baseSampleRate(
 		std::max(ConfigManager::inst()->value("audioengine", "samplerate").toInt(), SUPPORTED_SAMPLERATES.front()))
+	, m_inputSampleRate(m_baseSampleRate)
 	, m_inputBufferRead(0)
 	, m_inputBufferWrite(1)
+	, m_inputRingCapacity(static_cast<std::size_t>(MAXIMUM_BUFFER_SIZE) * 8)
+	, m_inputRingRead(0)
+	, m_inputRingWrite(0)
 	, m_outputBufferRead(nullptr)
 	, m_outputBufferWrite(nullptr)
 	, m_outputBufferReadIndex(0)
@@ -96,6 +100,7 @@ AudioEngine::AudioEngine(bool renderOnly)
 		m_inputBuffer[i] = new SampleFrame[ DEFAULT_BUFFER_SIZE * 100 ];
 		zeroSampleFrames(m_inputBuffer[i], m_inputBufferSize[i]);
 	}
+	m_inputRingBuffer = std::make_unique<SampleFrame[]>(m_inputRingCapacity);
 
 	BufferManager::init( m_framesPerPeriod );
 	m_outputBufferRead = std::make_unique<SampleFrame[]>(m_framesPerPeriod);
@@ -167,31 +172,43 @@ bool AudioEngine::criticalXRuns() const
 
 
 
-void AudioEngine::pushInputFrames( SampleFrame* _ab, const f_cnt_t _frames )
+void AudioEngine::pushInputFrames(const sample_t* input, const f_cnt_t framesToWrite, const ch_cnt_t channels)
 {
-	requestChangeInModel();
+	if (!input || channels == 0 || framesToWrite <= 0) { return; }
 
-	f_cnt_t frames = m_inputBufferFrames[ m_inputBufferWrite ];
-	auto size = m_inputBufferSize[m_inputBufferWrite];
-	SampleFrame* buf = m_inputBuffer[ m_inputBufferWrite ];
+	const auto write = m_inputRingWrite.load(std::memory_order_relaxed);
+	const auto read = m_inputRingRead.load(std::memory_order_acquire);
+	const auto available = m_inputRingCapacity - std::min(m_inputRingCapacity, write - read);
+	const auto frames = std::min<std::size_t>(static_cast<std::size_t>(framesToWrite), available);
 
-	if( frames + _frames > size )
+	if (channels == DEFAULT_CHANNELS)
 	{
-		size = std::max(size * 2, frames + _frames);
-		auto ab = new SampleFrame[size];
-		memcpy( ab, buf, frames * sizeof( SampleFrame ) );
-		delete [] buf;
-
-		m_inputBufferSize[ m_inputBufferWrite ] = size;
-		m_inputBuffer[ m_inputBufferWrite ] = ab;
-
-		buf = ab;
+		for (std::size_t frame = 0; frame < frames; ++frame)
+		{
+			auto& output = m_inputRingBuffer[(write + frame) % m_inputRingCapacity];
+			output[0] = input[frame * DEFAULT_CHANNELS];
+			output[1] = input[frame * DEFAULT_CHANNELS + 1];
+		}
 	}
-
-	memcpy( &buf[ frames ], _ab, _frames * sizeof( SampleFrame ) );
-	m_inputBufferFrames[ m_inputBufferWrite ] += _frames;
-
-	doneChangeInModel();
+	else if (channels == 1)
+	{
+		for (std::size_t frame = 0; frame < frames; ++frame)
+		{
+			auto& output = m_inputRingBuffer[(write + frame) % m_inputRingCapacity];
+			output[0] = input[frame];
+			output[1] = input[frame];
+		}
+	}
+	else
+	{
+		for (std::size_t frame = 0; frame < frames; ++frame)
+		{
+			auto& output = m_inputRingBuffer[(write + frame) % m_inputRingCapacity];
+			output[0] = input[frame * channels];
+			output[1] = input[frame * channels + 1];
+		}
+	}
+	m_inputRingWrite.store(write + frames, std::memory_order_release);
 }
 
 
@@ -338,7 +355,17 @@ void AudioEngine::swapBuffers()
 {
 	m_inputBufferWrite = (m_inputBufferWrite + 1) % 2;
 	m_inputBufferRead = (m_inputBufferRead + 1) % 2;
-	m_inputBufferFrames[m_inputBufferWrite] = 0;
+
+	const auto read = m_inputRingRead.load(std::memory_order_relaxed);
+	const auto write = m_inputRingWrite.load(std::memory_order_acquire);
+	const auto available = write - read;
+	const auto frames = std::min<std::size_t>(available, m_inputBufferSize[m_inputBufferRead]);
+	for (std::size_t frame = 0; frame < frames; ++frame)
+	{
+		m_inputBuffer[m_inputBufferRead][frame] = m_inputRingBuffer[(read + frame) % m_inputRingCapacity];
+	}
+	m_inputBufferFrames[m_inputBufferRead] = static_cast<f_cnt_t>(frames);
+	m_inputRingRead.store(read + frames, std::memory_order_release);
 
 	std::swap(m_outputBufferRead, m_outputBufferWrite);
 	zeroSampleFrames(m_outputBufferWrite.get(), m_framesPerPeriod);

@@ -108,6 +108,21 @@ bool SampleTrack::play( const TimePos & _start, const f_cnt_t _frames,
 		{
 			Clip * clip = getClip( i );
 			auto sClip = dynamic_cast<SampleClip*>(clip);
+			const bool shouldRecord = sClip->isRecord() && Engine::getSong()->isRecording();
+
+			// Recording clips do not need pre-existing sample data. Once the
+			// playhead reaches an armed clip, keep its handle alive until recording
+			// stops; the final take determines the new clip length.
+			if (shouldRecord && _start >= sClip->startPosition())
+			{
+				if (!sClip->isPlaying())
+				{
+					clips.push_back(sClip);
+					sClip->setIsPlaying(true);
+				}
+				nowPlaying = true;
+				continue;
+			}
 
 			if( _start >= sClip->startPosition() && _start < sClip->endPosition() )
 			{
